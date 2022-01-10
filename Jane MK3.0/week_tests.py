@@ -4,7 +4,9 @@ import sys
 import time
 
 import matplotlib.pyplot as plt
+import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 
 """
@@ -91,31 +93,70 @@ data.shape
 train = data[:,:3,:]
 validation = data[:,3:4,:]
 test = data[:,4:,:]
-train.shape,validation.shape,test.shape
 
-n = data.shape[-1] # day size
-train = train[0] # only this stock for now
+stock_n = data.shape[0]
+for stock_i in range(stock_n):
+    n = train.shape[-1]  # day size
 
-# TODO test with acceleration, diff(n=2)
-v = np.diff(train)# velocity / slope
-p = 6 # prior size
+    # TODO test with acceleration, diff(n=2)
+    v = np.diff(train[stock_i])# velocity / slope
 
-# shape 3 x n-p
-v_p = get_velocity_prior(v, p, n)
+    # GRID SEARCH FOR P AND S VALUES
 
-# match our prices at the time the prior is computed to the prior values
-# so that if at time i we have a prior, we can be sure we're simulating the correct price
-d = train[:,n-p:]
+    # prior size
+    p_range = range(1,n-1)
 
-# Now they both match in size, we flatten both to get vectors which our decision agent will run on
-v_p = v_p.flatten()
-d = d.flatten()
+    # slope threshold
+    s_range = [
+        1e-8, 5e-8,
+        1e-7, 5e-7,
+        1e-6, 5e-6,
+        1e-5, 5e-5,
+        1e-4, 5e-5,
+        .001,.002,.003,.004,.005,.006,.007,.008,.009,
+        .01,.02,.03,.04,.05,.06,.07,.08,.09,
+        .1,.2,.3,.4,.5,.6,.7,.8,.9,
+        1.0]
+
+    results = np.zeros((len(p_range), len(s_range)))
+
+    for i,p in enumerate(tqdm(p_range)):
+        for j,s in enumerate(s_range):
+            # shape 3 x n-p
+            v_p = get_velocity_prior(v, p, n)
+
+            # match our prices at the time the prior is computed to the prior values
+            # so that if at time i we have a prior, we can be sure we're simulating the correct price
+            d = train[stock_i,:,p:]
+
+            # Now they both match in size, we flatten both to get vectors which our decision agent will run on
+            v_p = v_p.flatten()
+            d = d.flatten()
+
+            assert len(v_p) == len(d)
+
+            # Get results of slope thresholded decision agent on this
+            roi = get_agent_roi(d, v_p, p, s)
+            results[i,j] = roi
+
+    #np.save("results.npy", results)
+    best = np.argmax(results)
+    i,j = best//len(s_range), best % len(s_range)
+    print(f"\nBest ROI found at p={p_range[i]}, s={s_range[j]}, producing $ {results[i,j]}")
 
 
-# Get results of slope thresholded decision agent on this
-s = .00001 # slope threshold
-roi = get_agent_roi(d, v_p, p, s)
+    #data = np.load("results.npy")
+    #pd.DataFrame(data)
+    plt.matshow(results)
+    plt.show()
 
+    p = p_range[i]
+    s = s_range[j]
+    #n = validation.shape[-1]
+    v_p = get_velocity_prior(np.diff(validation[stock_i]), p, n).flatten()
+    d = validation[stock_i,:,p:].flatten()
+    assert len(v_p) == len(d)
+    print(f"\tValidation ROI: $ {get_agent_roi(d, v_p, p, s)}")
 
 
 

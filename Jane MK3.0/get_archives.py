@@ -76,7 +76,6 @@ for stock_i, line in enumerate(tqdm(f)):
     #
     # plt.plot(timeticks, [float(t["close_price"]) for t in data])
     # plt.show()
-    break
 
 
 np.save("data/jan_09_2022/week.npy", weeks)
