@@ -43,6 +43,9 @@ for stock_i, line in enumerate(tqdm(f)):
     # WEEK DATA #
     weekdata = r.stocks.get_stock_historicals(sym, interval="5minute", span="week", bounds="regular")
 
+    # In the case of failed-to-retrieve, 404s, etc. we skip and leave as 0s
+    if weekdata[0] == None: continue
+
     day_offset = 0
     for i,timestep in enumerate(weekdata):
         day = parsetime(timestep).day

@@ -87,76 +87,92 @@ def get_agent_roi(d, v_p, p, s):
     else:
         return wallet
 
-data = np.load("data/jan_09_2022/week.npy")
-data.shape
-#%%
-train = data[:,:3,:]
-validation = data[:,3:4,:]
-test = data[:,4:,:]
+if __name__ == "__main__":
+    data = np.load("data/jan_09_2022/week.npy")
+    data.shape
+    #%%
+    train = data[:,:3,:]
+    validation = data[:,3:4,:]
+    # test = data[:,4:,:] # not even gonna allow this in the file
 
-stock_n = data.shape[0]
-for stock_i in range(stock_n):
-    n = train.shape[-1]  # day size
+    stock_n = data.shape[0]
+    best_p = np.zeros((stock_n,))
+    best_s = np.zeros((stock_n,))
+    training_rois = np.zeros((stock_n,))
+    validation_rois = np.zeros((stock_n,))
+    for stock_i in tqdm(range(stock_n)):
+        n = train.shape[-1]  # day size
 
-    # TODO test with acceleration, diff(n=2)
-    v = np.diff(train[stock_i])# velocity / slope
+        # TODO test with acceleration, diff(n=2)
+        v = np.diff(train[stock_i])# velocity / slope
 
-    # GRID SEARCH FOR P AND S VALUES
+        # GRID SEARCH FOR P AND S VALUES
 
-    # prior size
-    p_range = range(1,n-1)
+        # prior size
+        p_range = range(1,n-1)
 
-    # slope threshold
-    s_range = [
-        1e-8, 5e-8,
-        1e-7, 5e-7,
-        1e-6, 5e-6,
-        1e-5, 5e-5,
-        1e-4, 5e-5,
-        .001,.002,.003,.004,.005,.006,.007,.008,.009,
-        .01,.02,.03,.04,.05,.06,.07,.08,.09,
-        .1,.2,.3,.4,.5,.6,.7,.8,.9,
-        1.0]
+        # slope threshold
+        s_range = [
+            1e-8, 5e-8,
+            1e-7, 5e-7,
+            1e-6, 5e-6,
+            1e-5, 5e-5,
+            1e-4, 5e-5,
+            .001,.002,.003,.004,.005,.006,.007,.008,.009,
+            .01,.02,.03,.04,.05,.06,.07,.08,.09,
+            .1,.2,.3,.4,.5,.6,.7,.8,.9,
+            1.0]
 
-    results = np.zeros((len(p_range), len(s_range)))
+        results = np.zeros((len(p_range), len(s_range)))
 
-    for i,p in enumerate(tqdm(p_range)):
-        for j,s in enumerate(s_range):
-            # shape 3 x n-p
-            v_p = get_velocity_prior(v, p, n)
+        for i,p in enumerate(tqdm(p_range, disable=True)):
+            for j,s in enumerate(tqdm(s_range, disable=True)):
+                # shape 3 x n-p
+                v_p = get_velocity_prior(v, p, n)
 
-            # match our prices at the time the prior is computed to the prior values
-            # so that if at time i we have a prior, we can be sure we're simulating the correct price
-            d = train[stock_i,:,p:]
+                # match our prices at the time the prior is computed to the prior values
+                # so that if at time i we have a prior, we can be sure we're simulating the correct price
+                d = train[stock_i,:,p:]
 
-            # Now they both match in size, we flatten both to get vectors which our decision agent will run on
-            v_p = v_p.flatten()
-            d = d.flatten()
+                # Now they both match in size, we flatten both to get vectors which our decision agent will run on
+                v_p = v_p.flatten()
+                d = d.flatten()
 
-            assert len(v_p) == len(d)
+                assert len(v_p) == len(d)
 
-            # Get results of slope thresholded decision agent on this
-            roi = get_agent_roi(d, v_p, p, s)
-            results[i,j] = roi
+                # Get results of slope thresholded decision agent on this
+                roi = get_agent_roi(d, v_p, p, s)
+                results[i,j] = roi
 
-    #np.save("results.npy", results)
-    best = np.argmax(results)
-    i,j = best//len(s_range), best % len(s_range)
-    print(f"\nBest ROI found at p={p_range[i]}, s={s_range[j]}, producing $ {results[i,j]}")
+        #np.save("results.npy", results)
+        best = np.argmax(results)
+        i,j = best//len(s_range), best % len(s_range)
+
+        #print(f"\nBest ROI found at p={p_range[i]}, s={s_range[j]}, producing $ {results[i,j]}")
 
 
-    #data = np.load("results.npy")
-    #pd.DataFrame(data)
-    plt.matshow(results)
-    plt.show()
+        #data = np.load("results.npy")
+        #pd.DataFrame(data)
+        #plt.matshow(results)
+        #plt.show()
 
-    p = p_range[i]
-    s = s_range[j]
-    #n = validation.shape[-1]
-    v_p = get_velocity_prior(np.diff(validation[stock_i]), p, n).flatten()
-    d = validation[stock_i,:,p:].flatten()
-    assert len(v_p) == len(d)
-    print(f"\tValidation ROI: $ {get_agent_roi(d, v_p, p, s)}")
+        p = p_range[i]
+        s = s_range[j]
+        #n = validation.shape[-1]
+        v_p = get_velocity_prior(np.diff(validation[stock_i]), p, n).flatten()
+        d = validation[stock_i,:,p:].flatten()
+        assert len(v_p) == len(d)
+        validation_roi = get_agent_roi(d, v_p, p, s)
+        #print(f"\tValidation ROI: $ {get_agent_roi(d, v_p, p, s)}")
 
+        best_p[stock_i] = p_range[i]
+        best_s[stock_i] = s_range[j]
+        training_rois[stock_i] = results[i,j]
+        validation_rois[stock_i] = validation_roi
+
+    np.save("data/jan_09_2022/best_p.npy",best_p)
+    np.save("data/jan_09_2022/best_s.npy",best_s)
+    np.save("data/jan_09_2022/training_rois.npy",training_rois)
+    np.save("data/jan_09_2022/validation_rois.npy",validation_rois)
 
 
