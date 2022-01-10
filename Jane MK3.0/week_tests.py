@@ -35,6 +35,56 @@ We have a model that uses the train data to pick optimal:
     
 """
 
+def get_velocity_prior(v, p, n):
+    # Given velocity array v of shape ? x n
+    # and prior size p
+    # return velocity prior array.
+    v_p = np.zeros((v.shape[0], n - p))  # prior velocities
+
+    for i in range(p, n):
+        v_p[:, i - p] = np.mean(v[:, i - p:i], axis=1)
+    return v_p
+
+def get_agent_roi(d, v_p, p, s):
+    """
+    :param d: Data vector from which velocity prior vector was obtained, matched to velocity prior
+    :param v_p: Velocity prior vector (matches data points)
+    :param p: Prior size
+    :param s: Slope threshold
+    :return: Total $ worth at end of given run assuming 100$ (or just %)
+    """
+    # We don't flatten v prior b/c we have to match it up to realtime in the sim
+    # We'd only trade after p new values came in on the new day
+    wallet = 100
+    shares = 0
+    invested = False
+
+
+    for i,price in enumerate(d):
+
+        # TODO try enforcing waiting p timesteps before selling
+        if invested:
+            # this will run immedately in the next timestep for now
+            # cash out immediately
+            # if we have 5 shares, and we sell at current price, we end up with 5 * whatever price it is selling for
+            wallet = shares * price
+            shares = 0
+            invested = False
+
+        # keep this as elif so we don't sell then immediately buy
+        elif v_p[i] > s and not invested:
+            # buy at price
+            # if we have 10 dollars and it's 2$ a share, we have 5 shares now and no money
+            shares = wallet / price
+            wallet = 0
+            invested = True
+
+    # return worth at end of step - if invested, it's the shares, if not it's their wallet
+    if invested:
+        return shares * price
+    else:
+        return wallet
+
 data = np.load("data/jan_09_2022/week.npy")
 data.shape
 #%%
@@ -42,43 +92,30 @@ train = data[:,:3,:]
 validation = data[:,3:4,:]
 test = data[:,4:,:]
 train.shape,validation.shape,test.shape
-#%%
-#train = train[0]
-#plt.subplots(1,2)
-#plt.subplot(1,2,1)
-#plt.xticks(np.arange(len(train)))
-#plt.grid()
-#plt.plot(train[0][0])
-#plt.show()
-train = train[0]
-train_v = np.diff(train)# velocity / slope
-#plt.subplot(1,2,2)
-#plt.xticks(np.arange(len(train_v)))
-#plt.plot(train_v[0][0])
-prior_n = 6 # 30 minutes
-priors = []
-for day in train_v:
-    p = []
-    prior = [] # queue, with tail at 0 and head at n-1
-    for i,price in enumerate(day):
-        prior.append(price) # push to head
 
-        if len(prior) > prior_n: #overflowing, remove
-            prior.pop(0) # pop from tail
+n = data.shape[-1] # day size
+train = train[0] # only this stock for now
 
-        if len(prior) == prior_n:
-            p.append(np.mean(prior))
+# TODO test with acceleration, diff(n=2)
+v = np.diff(train)# velocity / slope
+p = 6 # prior size
 
-            # decision time
-    priors.append(p)
-#plt.plot(priors)
-#plt.grid()
-#plt.show()
-v_avg = np.zeros((3,77-prior_n+1))
+# shape 3 x n-p
+v_p = get_velocity_prior(v, p, n)
 
-for i in range(prior_n,78):
-    v_avg[:,i-prior_n] = np.mean(train_v[:,i-prior_n:i],axis=1)
+# match our prices at the time the prior is computed to the prior values
+# so that if at time i we have a prior, we can be sure we're simulating the correct price
+d = train[:,n-p:]
 
-# Testing this linalg way of computing these.
-for i in range(3):
-    assert (v_avg[i] == np.array(priors[i])).all()
+# Now they both match in size, we flatten both to get vectors which our decision agent will run on
+v_p = v_p.flatten()
+d = d.flatten()
+
+
+# Get results of slope thresholded decision agent on this
+s = .00001 # slope threshold
+roi = get_agent_roi(d, v_p, p, s)
+
+
+
+
