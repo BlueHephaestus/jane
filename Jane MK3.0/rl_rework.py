@@ -14,7 +14,7 @@ from tqdm import tqdm
 # we don't have timestamps, symbols, etc.
 # just testing if we can get some good predictions on 5-minute intervals.
 
-# shape = (stock_n, 5, 78)
+# shape = (stock_n, 5, 78, 5)
 
 This will be a model that's working with each 78-vector.
 So that it's making use of smaller minute to minute trends, rather than day to day.
@@ -25,27 +25,13 @@ We use first 3 days for training
 
 Plan is this:
 
-We have a model that uses the train data to pick optimal:
-    prior_n (# of v used in running mean)
-    v_threshold (slope)
+Treat each timestep like a reinforcement learning bot,
+    with each state input being the 5 values at that timestep
+    the outputs being > 1 buy, < -1 sell, -1 < 0 < 1 do nothing
+    the reward being the net worth at that timestep
     
-    which it then uses on validation data for us to do testing
-    
-    it does this for every single stock independently, so that it has a suite of models.
-        this can result in it producing a slope threshold that's huge, so it never does it.
-    
-    
+    train a bot to maximize the net worth
 """
-
-def get_velocity_prior(v, p, n):
-    # Given velocity array v of shape ? x n
-    # and prior size p
-    # return velocity prior array.
-    v_p = np.zeros((v.shape[0], n - p))  # prior velocities
-
-    for i in range(p, n):
-        v_p[:, i - p] = np.mean(v[:, i - p:i], axis=1)
-    return v_p
 
 def get_agent_roi(d, v_p, p, s):
     """

@@ -2,6 +2,8 @@
 Create archives for our datasets to run simulations and tests with.
 
 This one just does raw numbers shaped according to timesteps. No symbols.
+
+This one also grabs all the price data AND volume for every timestep, instead of just closing price
 """
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,13 +31,13 @@ with open("data/nasdaq.txt") as f:
 
 stock_n = len(f)
 
-# format weekdata into shape (# days, # points) -> usually this is (5, 78)
+# format weekdata into shape (# days, # points per day, # features) -> usually this is (5, 78, 5)
 # times obtained are 930am -> 355pm -> 78 points
-weeks = np.zeros((stock_n, 5, 78))
+weeks = np.zeros((stock_n, 5, 78, 5))
 
 # format 5 year data into shape (# points), this is maybe usually 1281? may be changed later.
 # because 1281 days in 5 years, ish
-fiveyears = np.zeros((stock_n, 1281))
+fiveyears = np.zeros((stock_n, 1281, 5))
 
 for stock_i, line in enumerate(tqdm(f)):
     sym = line.strip().split("|")[0]
@@ -46,24 +48,37 @@ for stock_i, line in enumerate(tqdm(f)):
     # In the case of failed-to-retrieve, 404s, etc. we skip and leave as 0s
     if weekdata[0] == None: continue
 
-    day_offset = 0
+    prev_day = -1
+    day_i = -1
     for i,timestep in enumerate(weekdata):
         day = parsetime(timestep).day
-        if i == 0:
-            # for initial day, so we can use it as indices
-            day_offset = day
-        day_i = day-day_offset
+        if prev_day != day:
+            prev_day = day
+            day_i += 1
         min_i = i % 78
-        weeks[stock_i,day_i,min_i] = timestep["close_price"]
+        weeks[stock_i, day_i, min_i] = [timestep["high_price"], timestep["open_price"], timestep["close_price"], timestep["low_price"], timestep["volume"]]
 
     # 5 YEAR DATA #
     fiveyeardata = r.stocks.get_stock_historicals(sym, interval="day", span="5year", bounds="regular")
 
     for day_i,timestep in enumerate(fiveyeardata):
-        fiveyears[stock_i,day_i] = timestep["close_price"]
+        fiveyears[stock_i,day_i] = timestep["high_price"], timestep["open_price"], timestep["close_price"], timestep["low_price"], timestep["volume"]
 
 
 
+    # for day in range(5):
+    #     plt.subplots(2,1)
+    #     plt.subplot(2,1,1)
+    #     plt.plot(weeks[stock_i,day,:,:4])
+    #     plt.legend(["high", "open", "close" ,"low"])
+    #     plt.subplot(2,1,2)
+    #     plt.plot(weeks[stock_i,day,:,4])
+    #     plt.legend(["volume"])
+    #     plt.legend()
+    #     plt.savefig(f"{day}.png")
+    #     plt.show()
+    #
+    # break
 
 
 
@@ -81,5 +96,7 @@ for stock_i, line in enumerate(tqdm(f)):
     # plt.show()
 
 
+print(weeks.shape)
+print(fiveyears.shape)
 np.save("data/jan_12_2022/week.npy", weeks)
 np.save("data/jan_12_2022/5year.npy", fiveyears)
