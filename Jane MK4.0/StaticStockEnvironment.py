@@ -1,40 +1,22 @@
 #%%
 # coding: utf-8
-import sys
-import time
 
-import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
-from tqdm import tqdm
-
 
 """
-# This is extremely test-driven
-# we don't have timestamps, symbols, etc.
-# just testing if we can get some good predictions on 5-minute intervals.
+Remade environment for optimized training.
 
-# shape = (stock_n, 5, 78, 5)
-
-This will be a model that's working with each 78-vector.
-So that it's making use of smaller minute to minute trends, rather than day to day.
-
-We use first 3 days for training
-#4 for validation
-#5 for testing
-
-Plan is this:
-
-Treat each timestep like a reinforcement learning bot,
-    with each state input being the 5 values at that timestep
-    the outputs being > 1 buy, < -1 sell, -1 < 0 < 1 do nothing
-    the reward being the net worth at that timestep
+As opposed to LiveStockEnvironment, this is made without any real-time implementations, and meant to 
+    be run for training, with many optimizations and functions implemented accordingly.
     
-    train a bot to maximize the net worth
+It will compute all the prices beforehand, for example, as well as return all the state values immediately,
+    assuming a model that doesn't take reward into account until the end.
+    
+Because of this it also only takes in actions as a full vector, that it runs through and computes the final reward from.
 """
 
 
-class StockEnvironment:
+class StaticStockEnvironment:
     def __init__(self, stock, initial_wallet=100, trade_fee=0.00):
         """
         A reinforcement learning environment, made from weekly stock data for ONE stock.
@@ -74,9 +56,27 @@ class StockEnvironment:
         self.done = False
         self.t = 0 # TIMESTEP
         self.shares = 0 # Used for computing net worth at each timestep, and indicating if we are invested.
-        self.price = 0 # current stock price
         self.wallet = self.INITIAL_WALLET # Used for computing net worth
         self.net_worth = self.wallet # initial net worth is always == wallet
+
+    def get_prices(self):
+        """
+        Using the current state value - a feature vector - compute the current price per share of the stock,
+            to be used in calculations for buying/selling and computing net worth.
+
+        Since we only have the high,low,open, and close data of a stock at each timestep,
+            we can't know exactly what the price will be at any given time in that timestep.
+
+        So, we obtain the mean and variance of these values and use them to model a gaussian distribution,
+            which we draw the price from.
+
+        :return: sets the self.prices attribute as well as returns it
+        """
+        # generate all prices for env data as vector matching len of env
+        means = np.mean(self.env[:,:-1])
+        stds = np.std(self.env[:,:-1])
+        self.prices = np.random.normal(loc=means, scale=stds)
+        return self.prices
 
     def get_net_worth(self):
         """
@@ -88,22 +88,6 @@ class StockEnvironment:
         :return: net worth
         """
         return (self.shares * self.price) * (1.0 - self.TRADE_FEE) + self.wallet
-
-    def get_price(self, state):
-        """
-        Using the current state value - a feature vector - compute the current price per share of the stock,
-            to be used in calculations for buying/selling and computing net worth.
-
-        Since we only have the high,low,open, and close data of a stock at each timestep,
-            we can't know exactly what the price will be at any given time in that timestep.
-
-        So, we obtain the mean and variance of these values and use them to model a gaussian distribution,
-            which we draw the price from.
-
-        :return: Price value of current stock based on share price data.
-        """
-        mean,std = np.mean(state[:-1]), np.std(state[:-1])
-        return np.random.normal(loc=mean,scale=std,size=1)
 
     def start(self):
         """
