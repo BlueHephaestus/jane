@@ -81,5 +81,5 @@ for stock_i, line in enumerate(tqdm(f)):
     # plt.show()
 
 
-np.save("data/jan_12_2022/week.npy", weeks)
-np.save("data/jan_12_2022/5year.npy", fiveyears)
+np.save("../Jane MK4.0/jan_12_2022/week.npy", weeks)
+np.save("../Jane MK4.0/jan_12_2022/5year.npy", fiveyears)

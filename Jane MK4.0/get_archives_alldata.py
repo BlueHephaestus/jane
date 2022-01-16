@@ -26,7 +26,7 @@ def parsetimestr(t):
     d = parsetime(t)
     return d.strftime("%Y-%b-%d(%a) @ %I:%M%p")
 
-with open("data/nasdaq.txt") as f:
+with open("nasdaq.txt") as f:
     f = f.readlines()
 
 stock_n = len(f)
@@ -98,5 +98,5 @@ for stock_i, line in enumerate(tqdm(f)):
 
 print(weeks.shape)
 print(fiveyears.shape)
-np.save("data/jan_12_2022/week.npy", weeks)
-np.save("data/jan_12_2022/5year.npy", fiveyears)
+np.save("jan_15_2022/week.npy", weeks)
+np.save("jan_15_2022/5year.npy", fiveyears)
