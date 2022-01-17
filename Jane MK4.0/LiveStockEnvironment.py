@@ -9,6 +9,9 @@ Live Stock Environment, where it's treated as a RL environment which will only r
     
 For optimized usage of the same interface, see StaticStockEnvironment, much faster by foregoing the emulation
     of real-time use.
+    
+# WARNING DO NOT USE FOR TRAINING, AS THE PRICE DATA IS RANDOMLY DRAWN ON EACH TIMESTEP AND SHOULD ONLY BE DONE
+# ONCE
 """
 
 

@@ -53,11 +53,9 @@ class StaticStockEnvironment:
         # Data currently being simulated, this is what will be referenced on each call to start() and act()
         # This can be changed when running validation and testing.
         self.env = self.train
-        self.done = False
-        self.t = 0 # TIMESTEP
         self.shares = 0 # Used for computing net worth at each timestep, and indicating if we are invested.
         self.wallet = self.INITIAL_WALLET # Used for computing net worth
-        self.net_worth = self.wallet # initial net worth is always == wallet
+        self.prices = self.get_prices() # Get all prices beforehand
 
     def get_prices(self):
         """
@@ -73,76 +71,88 @@ class StaticStockEnvironment:
         :return: sets the self.prices attribute as well as returns it
         """
         # generate all prices for env data as vector matching len of env
-        means = np.mean(self.env[:,:-1])
-        stds = np.std(self.env[:,:-1])
+        means = np.mean(self.env[:,:-1], axis=1)
+        stds = np.std(self.env[:,:-1], axis=1)
         self.prices = np.random.normal(loc=means, scale=stds)
         return self.prices
 
-    def get_net_worth(self):
+    def get_net_worth(self, price):
         """
         Using current simulation variables, return the current net worth of the bot.
         This is used as the reward at each timestep.
 
         Net worth = (shares * price/share) * (1 - self.TRADE_FEE) + self.wallet
 
+        :param price: Price at timestep to compute net worth
         :return: net worth
         """
-        return (self.shares * self.price) * (1.0 - self.TRADE_FEE) + self.wallet
+        return (self.shares * price) * (1.0 - self.TRADE_FEE) + self.wallet
 
-    def start(self):
+    def update_env(self, data):
         """
-        Start simulation on current environment.
-        If one is already running, this will reset it.
-        :return: First state and reward values in format (state, reward)
-            These will be the first timestep of data, and the initial wallet size, or net worth, of the agent.
+        Reset this environment with new data, and recompute relevant data.
         """
-        self.done = False
-        self.t = 0
+        self.env = data
         self.shares = 0
         self.wallet = self.INITIAL_WALLET
-        self.state = self.env[self.t]
-        self.price = self.get_price(self.state)
-        self.net_worth = self.wallet # initial net worth is always == wallet
-        return self.state, self.net_worth
+        self.prices = self.get_prices()
 
-    def act(self, action):
+    def reset(self):
         """
-        Execute action and get new state + reward value from training data.
+        Reset agent-specific attributes used to test this agent in this environment.
 
-        :param action: Continuous value from an RL agent.
+        DO NOT CHANGE THE PRICES
+        :return:
+        """
+        self.shares = 0
+        self.wallet = self.INITIAL_WALLET
+
+
+    def act(self, actions):
+        """
+        Iterate through all actions and get final reward after all data.
+
+        For each state value at timestep t:
+            price is the actual buy price at that timestep
+            action is the actual deicsion made by the agent at that timestep using that state
+
+            by applying the action with the given price, we get our resulting reward.
+            recall that the next state value is not determined by our actions in the stock market,
+                since our own investments causing change would only occur with very very large investments.
+
+            s_t+1, r_t+1 = environment(a_t*) # state does not depend on action, reward does.
+            a_t = agent(s_t, r_t*) # agent does not use reward at the moment
+            By combining them together we get the resulting reward for the next timestep
+
+        :param actions: Vector of continuous values from an RL agent.
             action < -1 = sell (can only do this if shares > 0)
             action > 1 = buy (can only do this if shares == 0)
             -1 < action < 1 = do nothing
 
             For now it is an all-or-nothing, it can not invest portions of its net worth.
-        :return: Advances the environment one timestep forward, and returns (state, reward) tuple like the following:
-            state: all price data at the next timestep
-            reward: net worth at the next timestep, computed from state values
+
+        :return:
+            Iterates through all states, and computes final net worth
         """
-        # ACTION PHASE - UPDATE SHARES AND WALLET
-        if action < -1:
-            # SELL
-            if self.shares > 0:
-                # Sell shares at current price and put it in the wallet.
-                self.wallet = (self.shares * self.price) * (1.0 - self.TRADE_FEE)
-                self.shares = 0
+        # Get all actions
+        for action,price in zip(actions, self.prices):
+            if action < -1:
+                # SELL
+                if self.shares > 0:
+                    # Sell shares at current price and put it in the wallet.
+                    self.wallet = (self.shares * price) * (1.0 - self.TRADE_FEE)
+                    self.shares = 0
 
-        elif action > 1:
-            # BUY
-            if self.shares == 0:
-                # Buy shares at current price, emptying our wallet.
-                self.shares = (self.wallet * (1.0 - self.TRADE_FEE)) / self.price
-                self.wallet = 0
-        else:
-            # DO NOTHING
-            pass
+            elif action > 1:
+                # BUY
+                if self.shares == 0:
+                    # Buy shares at current price, emptying our wallet.
+                    self.shares = (self.wallet * (1.0 - self.TRADE_FEE)) / price
+                    self.wallet = 0
+            else:
+                # DO NOTHING
+                pass
 
-        self.t += 1
-        self.done = self.t == self.env.shape[0]-1
-
-        self.state = self.env[self.t]
-        self.price = self.get_price(self.state) # recall, this is always used for backend, not shown to the agent
-        self.net_worth = self.get_net_worth() # since at this point shares, price, and wallet are updated.
-
-        return self.state, self.net_worth
+        # Now everything is finalized, return final reward after the final action
+        return self.get_net_worth(price=self.prices[-1])
 

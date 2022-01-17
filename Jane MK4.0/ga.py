@@ -16,7 +16,7 @@ from StaticStockEnvironment import StaticStockEnvironment
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-random.seed(42)
+#random.seed(42)
 
 # Importing gym
 import gym
@@ -63,44 +63,64 @@ def rollParams(uWs, top):
 
     return rWs
 
-
+# Optimized predict
+def optimized_predict(inputs):
+    """
+    Assuming a model that won't change at all while processing, optimize around TF's backend and predict
+        from the inputs.
+    :param inputs:
+    :return:
+    """
 # Fitness function
-env = LiveStockEnvironment(data[0])
+env = StaticStockEnvironment(data[0])
 
 from tensorflow.python import pywrap_tfe
 from tensorflow.python.eager import context
 from tensorflow.python.framework import constant_op
-def stock_performance(agent):
-    obs, reward = env.start()
-    model.set_weights(rollParams(agent, [5, 10, 5, 1]))
-    # Convert Keras model to ConcreteFunction since we don't modify it and just call it a bunch
-    full_model = tf.function(lambda x: model(x))
-    full_model = full_model.get_concrete_function(x=tf.TensorSpec(model.inputs[0].shape, model.inputs[0].dtype))
 
-    while not env.done:
+class FrozenModel:
+    def __init__(self, model):
+        self.model = model
 
-        # USING PREDICT IS WAYYYY SLOW DO NOT USE FOR THIS
-        # And predict_on_batch is way slower than a frozen function. noted
-        # and the frozen one is slower than just using the full model
-        #action = full_model(np.array([obs]))
+        # Convert Keras model to ConcreteFunction since we don't modify it and just call it a bunch
+        self.frozen_model = tf.function(lambda x: model(x)).get_concrete_function(x=tf.TensorSpec(model.inputs[0].shape, model.inputs[0].dtype))
+
+    def evaluate(self, inputs):
+        """
+        Verified this works the same as predict on batch via
+            (outputs == model.predict_on_batch(env.env).flatten()).all()
+
+        :param inputs: np array of shape (?, 5)
+        :return: outputs across all inputs as shape (?, )
+        """
         ctx = context.context()
         handle = ctx._handle
         device_name = ""
-        op_name = str(full_model.function_def.signature.name)
+        op_name = str(self.frozen_model.function_def.signature.name)
 
-        filtered_flat_inputs = [constant_op.constant(np.array([obs]))]
-        captured_inputs = full_model.captured_inputs
+        filtered_flat_inputs = [constant_op.constant(inputs)]
+        captured_inputs = self.frozen_model.captured_inputs
         inputs = filtered_flat_inputs + captured_inputs
         attrs = ("executor_type", "", "config_proto", ctx.function_call_options.config_proto_serialized)
         num_outputs = 1
-        action = pywrap_tfe.TFE_Py_Execute(handle, device_name, op_name, inputs, attrs, num_outputs)[0].numpy()
-        """
-        #action = full_model(np.array([obs]))
-        action = model.predict_on_batch(np.array([obs]))[0][0]
-        """
-        obs, reward = env.act(action)
+        return np.array(pywrap_tfe.TFE_Py_Execute(handle, device_name, op_name, inputs, attrs, num_outputs)).flatten()
 
-    return reward
+
+def stock_performance(agent):
+    # Set up and get frozen model
+    model.set_weights(rollParams(agent, [5, 10, 5, 1]))
+    #frozen_model = FrozenModel(model)
+
+    # Get all actions across all envdata
+    #outputs = frozen_model.evaluate(env.env)
+    outputs = model.predict_on_batch(env.env)
+
+    # Execute all actions and get final reward
+    reward = env.act(outputs)
+
+    env.reset()
+
+    return [reward]
 
 # Create neural network model
 model = Sequential()
@@ -141,8 +161,8 @@ toolbox.register("mutate", tools.mutGaussian, mu=0.0, sigma=0.2, indpb=0.05)
 toolbox.register("select", tools.selTournament, tournsize=3)
 
 
-def main():
-    pop = toolbox.population(n=10)
+def train():
+    pop = toolbox.population(n=100)
 
     # Get the best n individuals each generation, i.e. Hall of Fame
     # these are used to predict later when we finish
@@ -157,26 +177,24 @@ def main():
 
     # Launch evolutionary algorithm
     #$pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.8, mutpb=0.2, ngen=10, stats=stats, halloffame=hof, verbose=True)
-    pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.8, mutpb=0.2, ngen=5, stats=stats, halloffame=hof, verbose=True)
-    #pop, log = algorithms.eaMuCommaLambda(pop, toolbox, mu=10, lambda_=100, cxpb=0.8, mutpb=0.2, ngen=10, stats=stats, halloffame=hof, verbose=True)
-    print('\nBest: ')
-    print(hof)
-    np.save("predict_on_batch.npy", hof)
-    return hof
+    pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.8, mutpb=0.2, ngen=10, stats=stats, halloffame=hof, verbose=True)
+
+    # Return best model (hall of fame)
+    return hof[0]
 
 
 import time
-t = time.time()
-for i in range(2,data.shape[0]):
-    print(i)
-    env = LiveStockEnvironment(data[i])
-    best = main()[0]
-    env.env = env.validation
+for i in range(data.shape[0]):
+    t = time.time()
+    env = StaticStockEnvironment(data[i])
+    best = train()
+    print(f"Train: {stock_performance(best)}")
+    env.update_env(env.validation)
     print(f"Validation: {stock_performance(best)}")
-    env.env = env.test
+    env.update_env(env.test)
     print(f"Test: {stock_performance(best)}")
+    print(time.time()-t)
     break
-print(time.time()-t)
 """
 # Comment out main(), add env.render() inside the loop of the fitness function and uncomment following code to see best agent in action.
 
