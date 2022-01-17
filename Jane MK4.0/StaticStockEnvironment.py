@@ -17,7 +17,7 @@ Because of this it also only takes in actions as a full vector, that it runs thr
 
 
 class StaticStockEnvironment:
-    def __init__(self, stock, initial_wallet=100, trade_fee=0.00):
+    def __init__(self, stock, initial_shares=0, initial_wallet=100, trade_fee=0.00):
         """
         A reinforcement learning environment, made from weekly stock data for ONE stock.
             to use all stock data, run this concurrently with others.
@@ -33,19 +33,24 @@ class StaticStockEnvironment:
         :param trade_fee: % taken from every trade, i.e. commission
         """
         # DATA
-        self.train = stock[:3,:,:]
-        self.validation = stock[3:4,:,:]
-        self.test = stock[4:,:,:]
         self.feature_n = stock.shape[-1]
+        if stock.ndim == 3:
+            self.train = stock[:3,:,:]
+            self.validation = stock[3:4,:,:]
+            self.test = stock[4:,:,:]
 
-        # Additionally reshape each from (day #, timestep/day #, feature #) into (total timestep #, feature #)
-        # so that we can iterate through multiple days in one fell swoop and simplify things for sims.
-        # it also makes it a matrix and those are nice
-        self.train = self.train.reshape(-1, self.feature_n)
-        self.validation = self.validation.reshape(-1, self.feature_n)
-        self.test = self.test.reshape(-1, self.feature_n)
+            # Additionally reshape each from (day #, timestep/day #, feature #) into (total timestep #, feature #)
+            # so that we can iterate through multiple days in one fell swoop and simplify things for sims.
+            # it also makes it a matrix and those are nice
+            self.train = self.train.reshape(-1, self.feature_n)
+            self.validation = self.validation.reshape(-1, self.feature_n)
+            self.test = self.test.reshape(-1, self.feature_n)
+        else:
+            # else it's already total timestep #, feature # - only one passed in though, no split datasets.
+            self.train = stock
 
         # CONSTANTS
+        self.INITIAL_SHARES = initial_shares
         self.INITIAL_WALLET = initial_wallet
         self.TRADE_FEE = trade_fee
 
@@ -53,28 +58,31 @@ class StaticStockEnvironment:
         # Data currently being simulated, this is what will be referenced on each call to start() and act()
         # This can be changed when running validation and testing.
         self.env = self.train
-        self.shares = 0 # Used for computing net worth at each timestep, and indicating if we are invested.
+        self.shares = self.INITIAL_SHARES # Used for computing net worth at each timestep, and indicating if we are invested.
         self.wallet = self.INITIAL_WALLET # Used for computing net worth
         self.prices = self.get_prices() # Get all prices beforehand
 
     def get_prices(self):
-        """
-        Using the current state value - a feature vector - compute the current price per share of the stock,
-            to be used in calculations for buying/selling and computing net worth.
+        return np.mean(self.env[:, :-1], axis=1)
 
-        Since we only have the high,low,open, and close data of a stock at each timestep,
-            we can't know exactly what the price will be at any given time in that timestep.
-
-        So, we obtain the mean and variance of these values and use them to model a gaussian distribution,
-            which we draw the price from.
-
-        :return: sets the self.prices attribute as well as returns it
-        """
-        # generate all prices for env data as vector matching len of env
-        means = np.mean(self.env[:,:-1], axis=1)
-        stds = np.std(self.env[:,:-1], axis=1)
-        self.prices = np.random.normal(loc=means, scale=stds)
-        return self.prices
+    # def get_prices(self):
+    #     """
+    #     Using the current state value - a feature vector - compute the current price per share of the stock,
+    #         to be used in calculations for buying/selling and computing net worth.
+    #
+    #     Since we only have the high,low,open, and close data of a stock at each timestep,
+    #         we can't know exactly what the price will be at any given time in that timestep.
+    #
+    #     So, we obtain the mean and variance of these values and use them to model a gaussian distribution,
+    #         which we draw the price from.
+    #
+    #     :return: sets the self.prices attribute as well as returns it
+    #     """
+    #     # generate all prices for env data as vector matching len of env
+    #     means = np.mean(self.env[:,:-1], axis=1)
+    #     stds = np.std(self.env[:,:-1], axis=1)
+    #     self.prices = np.random.normal(loc=means, scale=stds)
+    #     return self.prices
 
     def get_net_worth(self, price):
         """
@@ -93,7 +101,7 @@ class StaticStockEnvironment:
         Reset this environment with new data, and recompute relevant data.
         """
         self.env = data
-        self.shares = 0
+        self.shares = self.INITIAL_SHARES
         self.wallet = self.INITIAL_WALLET
         self.prices = self.get_prices()
 
@@ -104,9 +112,34 @@ class StaticStockEnvironment:
         DO NOT CHANGE THE PRICES
         :return:
         """
-        self.shares = 0
+        self.shares = self.INITIAL_SHARES
         self.wallet = self.INITIAL_WALLET
 
+    def act_single(self, action, i):
+        """
+        Same as below, but only on one timestep.
+        :param action:
+        :return:
+        """
+        price = self.prices[i]
+        if action < -1:
+            # SELL
+            if self.shares > 0:
+                # Sell shares at current price and put it in the wallet.
+                self.wallet = (self.shares * price) * (1.0 - self.TRADE_FEE)
+                self.shares = 0
+
+        elif action > 1:
+            # BUY
+            if self.shares == 0:
+                # Buy shares at current price, emptying our wallet.
+                self.shares = (self.wallet * (1.0 - self.TRADE_FEE)) / price
+                self.wallet = 0
+        else:
+            # DO NOTHING
+            pass
+
+        return self.get_net_worth(price=price)
 
     def act(self, actions):
         """
@@ -153,6 +186,7 @@ class StaticStockEnvironment:
                 # DO NOTHING
                 pass
 
-        # Now everything is finalized, return final reward after the final action
-        return self.get_net_worth(price=self.prices[-1])
+        # Now everything is finalized, reset and return final reward after the final action
+        reward = self.get_net_worth(price=self.prices[-1])
+        return reward
 
